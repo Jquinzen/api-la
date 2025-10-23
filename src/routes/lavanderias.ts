@@ -70,25 +70,63 @@ router.get("/:id", asyncHandler(async (req, res) => {
 }))
 
 
-router.post("/", verificaToken, requireRole("PROPRIETARIO", "ADMIN"), asyncHandler(async (req: any, res) => {
-  const data = lavanderiaSchema.parse(req.body)
-  const lav = await prisma.lavanderia.create({
-    data: {
-      ...data,
-      destaque: data.destaque ?? false
-    },
-    select: {
-      id: true, nomeFantasia: true, endereco: true, fotoUrl: true, destaque: true,
-      createdAt: true, updatedAt: true
-    }
-  })
-  const [qAtivas, qTotal] = await Promise.all([
-    prisma.maquina.count({ where: { lavanderia_id: lav.id, status_maquina: "DISPONIVEL" } }),
-    prisma.maquina.count({ where: { lavanderia_id: lav.id } })
-  ])
-  res.status(201).json({ ...lav, qntMaquinas: qAtivas, qntMaquinasTotal: qTotal })
-}))
+router.post(
+  "/",
+  verificaToken,
+  requireRole("PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req: any, res) => {
+    const data = lavanderiaSchema.parse(req.body)
 
+    let proprietarioId = data.proprietario_id
+
+    if (req.user!.tipo === "PROPRIETARIO") {
+  
+      const me = await prisma.proprietario.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+      if (!me) return res.status(403).json({ erro: "Proprietário inválido" })
+      proprietarioId = me.id
+    } else {
+    
+      if (!proprietarioId) {
+        return res.status(400).json({ erro: "proprietario_id é obrigatório para ADMIN" })
+      }
+      const existe = await prisma.proprietario.findUnique({
+        where: { id: proprietarioId },
+        select: { id: true },
+      })
+      if (!existe) return res.status(400).json({ erro: "proprietario_id inexistente" })
+    }
+
+    const lav = await prisma.lavanderia.create({
+      data: {
+        ...data,
+        proprietario_id: proprietarioId!,
+        destaque: data.destaque ?? false,
+      },
+      select: {
+        id: true,
+        nomeFantasia: true,
+        endereco: true,
+        fotoUrl: true,
+        destaque: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+
+    const [qAtivas, qTotal] = await Promise.all([
+      prisma.maquina.count({
+        where: { lavanderia_id: lav.id, status_maquina: "DISPONIVEL" },
+      }),
+      prisma.maquina.count({ where: { lavanderia_id: lav.id } }),
+    ])
+
+    res
+      .status(201)
+      .json({ ...lav, qntMaquinas: qAtivas, qntMaquinasTotal: qTotal })
+  })
+)
 
 router.put("/:id", verificaToken, requireRole("PROPRIETARIO", "ADMIN"), asyncHandler(async (req, res) => {
   const { id } = req.params
