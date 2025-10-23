@@ -1,0 +1,190 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id    String      @id @default(uuid())
+  nome  String      @db.VarChar(30)
+  email String      @unique @db.VarChar(60)
+  senha String      @db.VarChar(72)
+  tipo  TipoUsuario
+
+  cliente      Cliente?
+  proprietario Proprietario?
+  admin        Admin?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum TipoUsuario {
+  CLIENTE
+  PROPRIETARIO
+  ADMIN
+}
+
+model Cliente {
+  id        String  @id @default(uuid())
+  usuarioId String  @unique
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+
+  reservas   Reserva[]
+  avaliacoes Avaliacao[]
+}
+
+model Proprietario {
+  id               String            @id @default(uuid())
+  usuarioId        String            @unique
+  usuario          Usuario           @relation(fields: [usuarioId], references: [id])
+  nivel_privilegio Niveis_privilegio @default(PLANO_BASICO)
+
+  lavanderias Lavanderia[]
+  Relatorios  Relatorio[]
+}
+
+model Admin {
+  id         String      @id @default(uuid())
+  usuarioId  String      @unique
+  usuario    Usuario     @relation(fields: [usuarioId], references: [id])
+  relatorios Relatorio[]
+}
+
+model Lavanderia {
+  id                String       @id @default(uuid())
+  nomeFantasia      String       @db.VarChar(60)
+  razaoSocial       String       @db.VarChar(100)
+  endereco          String       @db.VarChar(255)
+  telefone          String?      @db.VarChar(20)
+  horarioAbertura   String?      @db.VarChar(10)
+  horarioFechamento String?      @db.VarChar(10)
+  descricao         String?      @db.VarChar(255)
+  fotoUrl           String?      @db.VarChar(255)
+  latitude          Float?
+  longitude         Float?
+  proprietario      Proprietario @relation(fields: [proprietario_id], references: [id])
+  proprietario_id   String
+  destaque          Boolean      @default(false)
+
+  maquinas   Maquina[]
+  avaliacoes Avaliacao[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([latitude, longitude])
+}
+
+model Maquina {
+  id             String         @id @default(uuid())
+  tipo           Tipo_maquina   @default(LAVADORA)
+  status_maquina Status_maquina @default(DISPONIVEL)
+  capacidade     Int            @default(4)
+  preco          Decimal        @db.Decimal(10, 2)
+
+  lavanderia    Lavanderia @relation(fields: [lavanderia_id], references: [id])
+  lavanderia_id String
+
+  reservas Reserva[]
+
+  createAt DateTime @default(now())
+  updateAt DateTime @updatedAt
+}
+
+model Relatorio {
+  id              String       @id @default(uuid())
+  admin           Admin        @relation(fields: [admin_id], references: [id])
+  admin_id        String
+  proprietario    Proprietario @relation(fields: [proprietario_id], references: [id])
+  proprietario_id String
+
+  createAt DateTime @default(now())
+  updateAt DateTime @updatedAt
+}
+
+model Reserva {
+  id     String         @id @default(uuid())
+  status Status_reserva @default(EM_ANDAMENTO)
+
+  cliente    Cliente @relation(fields: [cliente_id], references: [id])
+  cliente_id String
+
+  maquina    Maquina @relation(fields: [maquina_id], references: [id])
+  maquina_id String
+
+  inicio DateTime // horário de início (UTC)
+  fim    DateTime // horário de fim (UTC)
+
+  createAt DateTime @default(now())
+  updateAt DateTime @updatedAt
+
+  // FK opcional => relação opcional (1–1)
+  pagamento    Pagamento? @relation("PagamentoDaReserva", fields: [pagamento_id], references: [id], onDelete: SetNull)
+  pagamento_id String?    @unique
+
+  @@index([maquina_id, inicio, fim])
+}
+
+model Avaliacao {
+  id            String     @id @default(uuid())
+  nota          Int
+  comentario    String     @db.VarChar(255)
+  cliente       Cliente    @relation(fields: [cliente_id], references: [id])
+  cliente_id    String
+  lavanderia    Lavanderia @relation(fields: [lavanderia_id], references: [id])
+  lavanderia_id String
+
+  createAt DateTime @default(now())
+  updateAt DateTime @updatedAt
+}
+
+model Pagamento {
+  id     String           @id @default(uuid())
+  valor  Decimal          @db.Decimal(10, 2)
+  metodo Metodo_Pagamento @default(PIX)
+  status Status_Pagamento @default(PENDENTE)
+
+  // lado inverso 1–1
+  reserva Reserva? @relation("PagamentoDaReserva")
+
+  createAt DateTime @default(now())
+}
+
+enum Status_reserva {
+  FEITA
+  EM_ANDAMENTO
+  CANCELADA
+}
+
+enum Status_maquina {
+  DISPONIVEL
+  EM_USO
+  EM_MANUTENCAO
+}
+
+enum Tipo_maquina {
+  LAVADORA
+  SECADORA
+}
+
+enum Niveis_privilegio {
+  PLANO_BASICO
+  PLANO_PREMIUM
+}
+
+enum Metodo_Pagamento {
+  PIX
+}
+
+enum Status_Pagamento {
+  FEITO
+  PENDENTE
+  CANCELADO
+}
