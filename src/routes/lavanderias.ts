@@ -48,6 +48,63 @@ async function contadoresLavanderias(ids: string[]) {
 // =============================
 
 router.get(
+  "/minhas",
+  verificaToken,
+  requireRole("PROPRIETARIO"),
+  asyncHandler(async (req, res) => {
+    // pega o proprietário pelo usuarioId do token
+    const prop = await prisma.proprietario.findUnique({
+      where: { usuarioId: req.user!.id },
+    })
+
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" })
+    }
+
+    const list = await prisma.lavanderia.findMany({
+      where: { proprietario_id: prop.id },
+      orderBy: { nomeFantasia: "asc" },
+      select: {
+        id: true,
+        nomeFantasia: true,
+        endereco: true,
+        fotoUrl: true,
+        destaque: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+
+    const ids = list.map((l) => l.id)
+
+    // reusando tua lógica de contagem de máquinas
+    const totais = await prisma.maquina.groupBy({
+      by: ["lavanderia_id"],
+      _count: { _all: true },
+      where: { lavanderia_id: { in: ids } },
+    })
+    const ativas = await prisma.maquina.groupBy({
+      by: ["lavanderia_id"],
+      _count: { _all: true },
+      where: { lavanderia_id: { in: ids }, status_maquina: "DISPONIVEL" },
+    })
+
+    const mapTotais = new Map<string, number>()
+    const mapAtivas = new Map<string, number>()
+    for (const r of totais) mapTotais.set(r.lavanderia_id, r._count._all)
+    for (const r of ativas) mapAtivas.set(r.lavanderia_id, r._count._all)
+
+    const resposta = list.map((l) => ({
+      ...l,
+      qntMaquinas: mapAtivas.get(l.id) ?? 0,
+      qntMaquinasTotal: mapTotais.get(l.id) ?? 0,
+    }))
+
+    res.json(resposta)
+  })
+)
+
+router.get(
   "/",
   asyncHandler(async (_req, res) => {
     const list = await prisma.lavanderia.findMany({

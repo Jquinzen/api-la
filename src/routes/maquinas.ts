@@ -7,7 +7,34 @@ import { maquinaSchema } from "../utils/validators.js"
 
 const router = Router()
 
-// GET /maquinas?status=DISPONIVEL&tipo=LAVADORA&lavanderia_id=...
+router.get(
+  "/proprietario/minhas",
+  verificaToken,
+  requireRole("PROPRIETARIO"),
+  asyncHandler(async (req, res) => {
+    const prop = await prisma.proprietario.findUnique({
+      where: { usuarioId: req.user!.id },
+    })
+    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
+
+    const maquinas = await prisma.maquina.findMany({
+      where: {
+        lavanderia: {
+          proprietario_id: prop.id,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        lavanderia: {
+          select: { id: true, nomeFantasia: true },
+        },
+      },
+    })
+
+    res.json(maquinas)
+  })
+)
+
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -19,7 +46,7 @@ router.get(
     const where: any = {}
 
     if (status) {
-      // Status_maquina: "DISPONIVEL" | "EM_USO" | "EM_MANUTENCAO"
+      
       where.status_maquina = status
     }
 
