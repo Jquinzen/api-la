@@ -9,6 +9,7 @@
     "prisma:dev": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
+    "prisma:deploy": "prisma migrate deploy",
     "vercel-build": "prisma generate && prisma db push --skip-generate"
   },
   "dependencies": {

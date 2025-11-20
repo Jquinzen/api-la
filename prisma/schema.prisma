@@ -1,5 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// ============================
+// Prisma Schema Unificado (Web + Expo)
+// ============================
 
 generator client {
   provider = "prisma-client-js"
@@ -10,16 +11,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================
+// MODELOS DE DOMÍNIO
+// ============================
+
 model Usuario {
-  id    String      @id @default(uuid())
-  nome  String      @db.VarChar(30)
-  email String      @unique @db.VarChar(60)
-  senha String      @db.VarChar(72)
-  tipo  TipoUsuario
+  id       String      @id @default(uuid())
+  nome     String      @db.VarChar(30)
+  email    String      @unique @db.VarChar(60)
+  senha    String      @db.VarChar(72)
+  tipo     TipoUsuario
+
+  // campos opcionais para perfil
+  telefone String?     @db.VarChar(20)
+  fotoUrl  String?     @db.VarChar(255)
 
   cliente      Cliente?
   proprietario Proprietario?
   admin        Admin?
+
+  notificacoes Notificacao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -38,6 +49,7 @@ model Cliente {
 
   reservas   Reserva[]
   avaliacoes Avaliacao[]
+  enderecos  Endereco[]
 }
 
 model Proprietario {
@@ -47,14 +59,21 @@ model Proprietario {
   nivel_privilegio Niveis_privilegio @default(PLANO_BASICO)
 
   lavanderias Lavanderia[]
-  Relatorios  Relatorio[]
+  relatorios  Relatorio[]
 }
 
 model Admin {
-  id         String      @id @default(uuid())
-  usuarioId  String      @unique
-  usuario    Usuario     @relation(fields: [usuarioId], references: [id])
-  relatorios Relatorio[]
+  id        String  @id @default(uuid())
+  usuarioId String  @unique
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+
+  // opcional: nível interno de acesso no painel web
+  nivel Int @db.SmallInt @default(2)
+
+  relatorios  Relatorio[]
+  maquinas    Maquina[]     // máquinas criadas/alteradas por este admin
+  logs        Log[]
+  lavanderias Lavanderia[]  @relation("AdminLavanderias")
 }
 
 model Lavanderia {
@@ -69,12 +88,18 @@ model Lavanderia {
   fotoUrl           String?      @db.VarChar(255)
   latitude          Float?
   longitude         Float?
-  proprietario      Proprietario @relation(fields: [proprietario_id], references: [id])
-  proprietario_id   String
-  destaque          Boolean      @default(false)
+
+  proprietario    Proprietario @relation(fields: [proprietario_id], references: [id])
+  proprietario_id String
+
+  // campos herdados do schema Web antigo
+  qntMaquinas Int     @default(0)
+  destaque    Boolean @default(true)
 
   maquinas   Maquina[]
   avaliacoes Avaliacao[]
+
+  admins Admin[] @relation("AdminLavanderias")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,13 +114,20 @@ model Maquina {
   capacidade     Int            @default(4)
   preco          Decimal        @db.Decimal(10, 2)
 
+  // compatível com a API antiga (web)
+  ativa Boolean @default(true)
+
   lavanderia    Lavanderia @relation(fields: [lavanderia_id], references: [id])
   lavanderia_id String
 
   reservas Reserva[]
 
-  createAt DateTime @default(now())
-  updateAt DateTime @updatedAt
+  // opcional: qual admin criou/alterou esta máquina
+  admin   Admin? @relation(fields: [adminId], references: [id])
+  adminId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Relatorio {
@@ -105,8 +137,8 @@ model Relatorio {
   proprietario    Proprietario @relation(fields: [proprietario_id], references: [id])
   proprietario_id String
 
-  createAt DateTime @default(now())
-  updateAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Reserva {
@@ -119,17 +151,20 @@ model Reserva {
   maquina    Maquina @relation(fields: [maquina_id], references: [id])
   maquina_id String
 
-  inicio DateTime // horário de início (UTC)
-  fim    DateTime // horário de fim (UTC)
+  // janela da reserva
+  inicio DateTime
+  fim    DateTime
 
-  createAt DateTime @default(now())
-  updateAt DateTime @updatedAt
+  pagamento Pagamento?
 
-  // FK opcional => relação opcional (1–1)
-  pagamento    Pagamento? @relation("PagamentoDaReserva", fields: [pagamento_id], references: [id], onDelete: SetNull)
-  pagamento_id String?    @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([maquina_id, inicio, fim])
+  // evita duplicidade e otimiza consultas
+  @@unique([maquina_id, inicio])
+  @@index([cliente_id, inicio])
+  @@index([maquina_id, inicio])
+  @@index([status, inicio])
 }
 
 model Avaliacao {
@@ -141,21 +176,64 @@ model Avaliacao {
   lavanderia    Lavanderia @relation(fields: [lavanderia_id], references: [id])
   lavanderia_id String
 
-  createAt DateTime @default(now())
-  updateAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Pagamento {
-  id     String           @id @default(uuid())
-  valor  Decimal          @db.Decimal(10, 2)
-  metodo Metodo_Pagamento @default(PIX)
-  status Status_Pagamento @default(PENDENTE)
+  id       String           @id @default(uuid())
+  valor    Decimal          @db.Decimal(10, 2)
+  metodo   Metodo_Pagamento @default(PIX)
+  status   Status_Pagamento @default(PENDENTE)
 
-  // lado inverso 1–1
-  reserva Reserva? @relation("PagamentoDaReserva")
+  reserva   Reserva @relation(fields: [reservaId], references: [id])
+  reservaId String  @unique
 
-  createAt DateTime @default(now())
+  createdAt DateTime @default(now())
 }
+
+model Notificacao {
+  id        String          @id @default(uuid())
+  titulo    String          @db.VarChar(100)
+  mensagem  String          @db.VarChar(255)
+  tipo      TipoNotificacao @default(SISTEMA)
+  lida      Boolean         @default(false)
+
+  usuarioId String
+  usuario   Usuario         @relation(fields: [usuarioId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Endereco {
+  id        String   @id @default(uuid())
+  apelido   String   @db.VarChar(30)
+  rua       String   @db.VarChar(100)
+  bairro    String   @db.VarChar(60)
+  cidade    String   @db.VarChar(60)
+  estado    String   @db.VarChar(2)
+  cep       String?  @db.VarChar(9)
+  latitude  Float?
+  longitude Float?
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+}
+
+// LOG vindo do schema Web original
+model Log {
+  id          Int      @id @default(autoincrement())
+  admin       Admin    @relation(fields: [adminId], references: [id])
+  adminId     String
+  descricao   String   @db.VarChar(60)
+  complemento String   @db.VarChar(200)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================
+// ENUMS
+// ============================
 
 enum Status_reserva {
   FEITA
@@ -187,4 +265,10 @@ enum Status_Pagamento {
   FEITO
   PENDENTE
   CANCELADO
+}
+
+enum TipoNotificacao {
+  SISTEMA
+  PROMOCAO
+  ALERTA
 }

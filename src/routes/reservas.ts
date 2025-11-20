@@ -4,15 +4,13 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { verificaToken } from "../middlewares/verificaToken.js"
 import { requireRole } from "../middlewares/requireRole.js"
 import { reservaCreateSchema } from "../utils/validators.js"
-import { Status_maquina, Status_reserva } from "@prisma/client"
+import { Status_maquina, Status_reserva, TipoNotificacao } from "@prisma/client"
 
 const router = Router()
 
-
 //verifica se há conflito de horários
-
 async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
-  const margemMs = 5 * 60 * 1000 
+  const margemMs = 5 * 60 * 1000
   const inicioMargem = new Date(inicio.getTime() - margemMs)
   const fimMargem = new Date(fim.getTime() + margemMs)
 
@@ -26,7 +24,7 @@ async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
   })
 }
 
-
+// =============== CRIAR RESERVA ===============
 router.post(
   "/",
   verificaToken,
@@ -37,7 +35,7 @@ router.post(
     const cliente = await prisma.cliente.findUnique({
       where: { usuarioId: req.user!.id },
     })
-    if (!cliente || cliente.id !== payload.cliente_id) {
+    if (!cliente) {
       return res.status(403).json({ erro: "Cliente inválido" })
     }
 
@@ -73,15 +71,33 @@ router.post(
       include: { maquina: true },
     })
 
+    // ========== CRIA NOTIFICAÇÃO PARA O USUÁRIO ==========
+    const horarioFormatado = inicio.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+
+    await prisma.notificacao.create({
+      data: {
+        usuarioId: req.user!.id,
+        titulo: "Reserva criada",
+        mensagem: `Sua reserva para a máquina ${maquina.tipo} foi criada para ${horarioFormatado}.`,
+        tipo: TipoNotificacao.ALERTA, 
+      },
+    })
+
     res.status(201).json({
       mensagem: "Reserva criada com sucesso!",
       tolerancia: "Cliente deve chegar até 10 minutos após o início.",
-      reserva,
+      reserva: {
+        ...reserva,
+        valor: reserva.maquina.preco,
+      },
     })
   })
 )
 
-
+// =============== MINHAS RESERVAS ===============
 router.get(
   "/minhas",
   verificaToken,
@@ -108,6 +124,80 @@ router.get(
     })
 
     res.json(reservas)
+  })
+)
+
+// =============== HORÁRIOS OCUPADOS ===============
+router.get(
+  "/ocupados",
+  verificaToken,
+  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { maquina_id, data } = req.query
+
+    if (!maquina_id || !data) {
+      return res
+        .status(400)
+        .json({ erro: "maquina_id e data são obrigatórios" })
+    }
+
+    const inicioDia = new Date(`${data}T00:00:00`)
+    const fimDia = new Date(`${data}T23:59:59`)
+
+    const reservas = await prisma.reserva.findMany({
+      where: {
+        maquina_id: String(maquina_id),
+        status: { not: Status_reserva.CANCELADA },
+        inicio: { gte: inicioDia },
+        fim: { lte: fimDia },
+      },
+      select: {
+        inicio: true,
+        fim: true,
+      },
+    })
+
+    const format = (d: Date) => d.toISOString().substring(11, 16) 
+
+    res.json(
+      reservas.map((r) => ({
+        inicio: format(r.inicio),
+        fim: format(r.fim),
+      }))
+    )
+  })
+)
+
+// =============== CANCELAR RESERVA ===============
+router.delete(
+  "/:id",
+  verificaToken,
+  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params
+
+    const reserva = await prisma.reserva.findUnique({
+      where: { id },
+    })
+
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" })
+
+    if (req.user!.tipo === "CLIENTE") {
+      const cli = await prisma.cliente.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+
+      if (!cli || cli.id !== reserva.cliente_id) {
+        return res.status(403).json({ erro: "Sem permissão" })
+      }
+    }
+
+    await prisma.reserva.update({
+      where: { id },
+      data: { status: Status_reserva.CANCELADA },
+    })
+
+    res.json({ mensagem: "Reserva cancelada com sucesso" })
   })
 )
 

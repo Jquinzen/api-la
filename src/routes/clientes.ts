@@ -7,12 +7,22 @@ import { requireRole } from "../middlewares/requireRole.js"
 const router = Router()
 
 
-router.get("/me", verificaToken, requireRole("CLIENTE"), asyncHandler(async (req, res) => {
-  const cliente = await prisma.cliente.findUnique({
-    where: { usuarioId: req.user!.id },
-    include: { usuario: true }
+router.get(
+  "/me",
+  verificaToken,
+  requireRole("CLIENTE"),
+  asyncHandler(async (req, res) => {
+    const cliente = await prisma.cliente.findUnique({
+      where: { usuarioId: req.user!.id },
+      include: { usuario: true },
+    })
+
+    if (!cliente) {
+      return res.status(404).json({ erro: "Cliente não encontrado" })
+    }
+
+    res.json(cliente)
   })
-  res.json(cliente)
-}))
+)
 
 export default router

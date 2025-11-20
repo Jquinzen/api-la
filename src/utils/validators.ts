@@ -40,7 +40,6 @@ export const maquinaSchema = z.object({
 
 // Reserva
 export const reservaCreateSchema = z.object({
-  cliente_id: z.string().uuid(),
   maquina_id: z.string().uuid(),
   inicio: z.coerce.date(),            
 
@@ -57,7 +56,6 @@ export const reservaUpdateSchema = z.object({
 
 // Pagamento
 export const pagamentoSchema = z.object({
-  valor: z.number().positive(),
   metodo: z.enum(["PIX"]).default("PIX"),
   status: z.enum(["FEITO", "PENDENTE", "CANCELADO"]).default("PENDENTE")
 })
