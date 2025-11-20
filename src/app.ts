@@ -1,6 +1,7 @@
 import "dotenv/config"
 import express from "express"
 import morgan from "morgan"
+import cors from "cors"                // 👈 ADICIONA ISSO
 import { errorHandler } from "./middlewares/errorHandler.js"
 
 import auth from "./routes/auth.js"
@@ -12,14 +13,18 @@ import reservas from "./routes/reservas.js"
 import pagamentos from "./routes/pagamentos.js"
 import avaliacoes from "./routes/avaliacoes.js"
 import relatorios from "./routes/relatorios.js"
-import usuarios from "./routes/usuarios.js"        
-import enderecos from "./routes/enderecos.js"      
-import notificacoes from "./routes/notificacoes.js" 
 
 export const app = express()
 
 app.use(express.json())
 app.use(morgan("dev"))
+
+
+app.use(
+  cors({
+    origin: "*", 
+  })
+)
 
 app.get("/health", (_req, res) => res.json({ ok: true }))
 
@@ -32,8 +37,5 @@ app.use("/reservas", reservas)
 app.use("/pagamentos", pagamentos)
 app.use("/avaliacoes", avaliacoes)
 app.use("/relatorios", relatorios)
-app.use("/usuarios", usuarios)          
-app.use("/endereco", enderecos)        
-app.use("/notificacoes", notificacoes)  
 
 app.use(errorHandler)
