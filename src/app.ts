@@ -1,9 +1,9 @@
 import "dotenv/config"
 import express from "express"
 import morgan from "morgan"
-import cors from "cors"                // 👈 ADICIONA ISSO
+import cors from "cors"                
 import { errorHandler } from "./middlewares/errorHandler.js"
-
+import dashboard from "./routes/dashboard.js"
 import auth from "./routes/auth.js"
 import clientes from "./routes/clientes.js"
 import proprietarios from "./routes/proprietarios.js"
@@ -29,6 +29,7 @@ app.use(
 app.get("/health", (_req, res) => res.json({ ok: true }))
 
 app.use("/auth", auth)
+app.use("/dashboard", dashboard)
 app.use("/clientes", clientes)
 app.use("/proprietarios", proprietarios)
 app.use("/lavanderias", lavanderias)
