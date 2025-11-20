@@ -7,6 +7,33 @@ import { maquinaSchema } from "../utils/validators.js"
 
 const router = Router()
 
+  router.get(
+    "/:id",
+    asyncHandler(async (req, res) => {
+      const id = req.params.id;
+
+      const maquina = await prisma.maquina.findUnique({
+        where: { id },
+        include: {
+          lavanderia: {
+            select: {
+              id: true,
+              nomeFantasia: true,
+              endereco: true,
+              fotoUrl: true,
+            },
+          },
+        },
+      });
+
+      if (!maquina) {
+        return res.status(404).json({ erro: "Máquina não encontrada" });
+      }
+
+      res.json(maquina);
+    })
+  );
+
 router.get(
   "/proprietario/minhas",
   verificaToken,
