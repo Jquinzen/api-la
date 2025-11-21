@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
     "prisma:deploy": "prisma migrate deploy",
-    "vercel-build": "prisma generate && prisma db push --skip-generate"
+    "vercel-build": "prisma generate && prisma db push --accept-data-loss --skip-generate"
+
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
