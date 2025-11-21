@@ -8,9 +8,7 @@ import { Status_maquina, Status_reserva, TipoNotificacao } from "@prisma/client"
 
 const router = Router()
 
-// =====================================
-// Função auxiliar: verifica conflito
-// =====================================
+
 async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
   const margemMs = 5 * 60 * 1000
   const inicioMargem = new Date(inicio.getTime() - margemMs)
@@ -26,10 +24,6 @@ async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
   })
 }
 
-// =====================================
-// LISTAR RESERVAS DO PROPRIETÁRIO
-// GET /reservas
-// =====================================
 router.get(
   "/",
   verificaToken,
@@ -85,10 +79,7 @@ router.get(
   })
 )
 
-// =====================================
-// CRIAR RESERVA (CLIENTE)
-// POST /reservas
-// =====================================
+
 router.post(
   "/",
   verificaToken,
@@ -111,7 +102,7 @@ router.post(
       return res.status(400).json({ erro: "Máquina indisponível" })
     }
 
-    // define tempo padrão do ciclo da máquina
+  
     const inicio = new Date(payload.inicio)
     const tempoOperacaoMin = maquina.tipo === "LAVADORA" ? 45 : 30
     const fim = new Date(inicio.getTime() + tempoOperacaoMin * 60 * 1000)
@@ -135,7 +126,7 @@ router.post(
       include: { maquina: true },
     })
 
-    // ========== CRIA NOTIFICAÇÃO PARA O USUÁRIO ==========
+
     const horarioFormatado = inicio.toLocaleTimeString("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
@@ -161,10 +152,7 @@ router.post(
   })
 )
 
-// =====================================
-// MINHAS RESERVAS (CLIENTE)
-// GET /reservas/minhas
-// =====================================
+
 router.get(
   "/minhas",
   verificaToken,
@@ -194,10 +182,7 @@ router.get(
   })
 )
 
-// =====================================
-// HORÁRIOS OCUPADOS
-// GET /reservas/ocupados
-// =====================================
+
 router.get(
   "/ocupados",
   verificaToken,
@@ -238,10 +223,7 @@ router.get(
   })
 )
 
-// =====================================
-// CANCELAR RESERVA (CLIENTE, PROPRIETARIO, ADMIN)
-// DELETE /reservas/:id
-// =====================================
+
 router.delete(
   "/:id",
   verificaToken,
@@ -269,7 +251,7 @@ router.delete(
 
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" })
 
-    // Cliente: só cancela se a reserva for dele
+  
     if (req.user!.tipo === "CLIENTE") {
       const cli = await prisma.cliente.findUnique({
         where: { usuarioId: req.user!.id },
@@ -280,8 +262,7 @@ router.delete(
       }
     }
 
-    // Proprietário: só cancela se a máquina for de uma lavanderia dele
-    // e é OBRIGADO a mandar mensagem (motivo)
+ 
     if (req.user!.tipo === "PROPRIETARIO") {
       const prop = await prisma.proprietario.findUnique({
         where: { usuarioId: req.user!.id },
@@ -301,14 +282,14 @@ router.delete(
       }
     }
 
-    // ADMIN pode cancelar qualquer reserva (já passou no requireRole)
+   
 
     await prisma.reserva.update({
       where: { id },
       data: { status: Status_reserva.CANCELADA },
     })
 
-    // Se foi o PROPRIETARIO que cancelou, cria notificação para o cliente
+   
     if (req.user!.tipo === "PROPRIETARIO" && reserva.cliente?.usuario) {
       await prisma.notificacao.create({
         data: {
@@ -324,20 +305,16 @@ router.delete(
   })
 )
 
-// =====================================
-// JOB: FINALIZAR + LEMBRETES
-// POST /reservas/job
-// =====================================
+
 router.post(
   "/job",
   verificaToken,
-  requireRole("ADMIN"), // só ADMIN pode rodar esse job manualmente
+  requireRole("ADMIN"), 
   asyncHandler(async (req, res) => {
     const agora = new Date()
     const daqui15 = new Date(agora.getTime() + 15 * 60 * 1000)
 
-    // 1) "Finalizar" reservas cujo fim já passou
-    // (no painel você exibe CANCELADA como "Finalizada")
+
     const finalizadas = await prisma.reserva.updateMany({
       where: {
         fim: { lt: agora },
@@ -346,7 +323,7 @@ router.post(
       data: { status: Status_reserva.CANCELADA },
     })
 
-    // 2) Lembrete: reservas que começam em até 15min
+    
     const reservasProximas = await prisma.reserva.findMany({
       where: {
         inicio: { gte: agora, lte: daqui15 },
@@ -369,7 +346,7 @@ router.post(
       const usuario = reserva.cliente?.usuario
       if (!usuario) continue
 
-      // já tem notificação recente desse tipo pra esse usuário?
+     
       const existeNotif = await prisma.notificacao.findFirst({
         where: {
           usuarioId: usuario.id,
