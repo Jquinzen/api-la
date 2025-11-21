@@ -5,39 +5,9 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { verificaToken } from "../middlewares/verificaToken.js"
 import { requireRole } from "../middlewares/requireRole.js"
 
+
 const router = Router()
 
-
-type UserPayload = {
-  id: string
-  tipo: "CLIENTE" | "PROPRIETARIO" | "ADMIN"
-}
-
-declare global {
-  namespace Express {
-    interface Request {
-      user?: UserPayload
-    }
-  }
-}
-
-// Helper: pega o proprietário e as lavanderias desse usuário
-async function getContextoProprietario(usuarioId: string) {
-  const prop = await prisma.proprietario.findUnique({
-    where: { usuarioId },
-  })
-
-  if (!prop) return null
-
-  const lavs = await prisma.lavanderia.findMany({
-    where: { proprietario_id: prop.id },
-    select: { id: true },
-  })
-
-  const lavIds = lavs.map((l) => l.id)
-
-  return { proprietarioId: prop.id, lavanderiaIds: lavIds }
-}
 
 
 
@@ -46,36 +16,30 @@ router.get(
   verificaToken,
   requireRole("PROPRIETARIO"),
   asyncHandler(async (req, res) => {
-    const usuarioId = req.user!.id
+    const prop = await prisma.proprietario.findUnique({
+      where: { usuarioId: req.user!.id },
+    })
 
-    const ctx = await getContextoProprietario(usuarioId)
-    if (!ctx || ctx.lavanderiaIds.length === 0) {
-      return res.json({
-        clientes: 0,
-        lavanderias: 0,
-        maquinas: 0,
-        reservas: 0,
-      })
-    }
+    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
 
-    const { lavanderiaIds } = ctx
+ 
+    const lavs = await prisma.lavanderia.findMany({
+      where: { proprietario_id: prop.id },
+      select: { id: true },
+    })
 
-    const [maquinas, reservas, clientesGroup] = await Promise.all([
-      prisma.maquina.count({
-        where: { lavanderia_id: { in: lavanderiaIds } },
-      }),
+    const lavIds = lavs.map((l) => l.id)
+
+    const [maquinas, reservas] = await Promise.all([
+      prisma.maquina.count({ where: { lavanderia_id: { in: lavIds } } }),
       prisma.reserva.count({
-        where: { maquina: { lavanderia_id: { in: lavanderiaIds } } },
-      }),
-      prisma.reserva.groupBy({
-        by: ["cliente_id"],
-        where: { maquina: { lavanderia_id: { in: lavanderiaIds } } },
+        where: { maquina: { lavanderia_id: { in: lavIds } } },
       }),
     ])
 
     res.json({
-      clientes: clientesGroup.length,      // clientes distintos
-      lavanderias: lavanderiaIds.length,   // qtd de lavanderias do proprietário
+      clientes: 0, 
+      lavanderias: lavIds.length,
       maquinas,
       reservas,
     })
@@ -88,19 +52,14 @@ router.get(
   verificaToken,
   requireRole("PROPRIETARIO"),
   asyncHandler(async (req, res) => {
-    const usuarioId = req.user!.id
+    const prop = await prisma.proprietario.findUnique({
+      where: { usuarioId: req.user!.id },
+    })
 
-    const ctx = await getContextoProprietario(usuarioId)
-    if (!ctx || ctx.lavanderiaIds.length === 0) {
-      return res.json([])
-    }
-
-    const { lavanderiaIds } = ctx
+    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
 
     const maquinas = await prisma.maquina.findMany({
-      where: {
-        lavanderia_id: { in: lavanderiaIds },
-      },
+      where: { lavanderia: { proprietario_id: prop.id } },
       include: { lavanderia: true },
       orderBy: { createdAt: "desc" },
     })
@@ -110,28 +69,27 @@ router.get(
 )
 
 
-
 router.get(
   "/proprietario/reservasStatus",
   verificaToken,
   requireRole("PROPRIETARIO"),
   asyncHandler(async (req, res) => {
-    const usuarioId = req.user!.id
+    const prop = await prisma.proprietario.findUnique({
+      where: { usuarioId: req.user!.id },
+    })
 
-    const ctx = await getContextoProprietario(usuarioId)
-    if (!ctx || ctx.lavanderiaIds.length === 0) {
-      return res.json([])
-    }
-
-    const { lavanderiaIds } = ctx
+    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
 
     const rows = await prisma.reserva.groupBy({
       by: ["status"],
       _count: { status: true },
       where: {
-        maquina: {
-          lavanderia_id: { in: lavanderiaIds },
-        },
+        maquina: { lavanderia_id: { in: (
+          await prisma.lavanderia.findMany({
+            where: { proprietario_id: prop.id },
+            select: { id: true },
+          })
+        ).map((l) => l.id) } },
       },
     })
 
