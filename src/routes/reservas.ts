@@ -239,7 +239,7 @@ router.get(
 )
 
 // =====================================
-// CANCELAR RESERVA
+// CANCELAR RESERVA (CLIENTE, PROPRIETARIO, ADMIN)
 // DELETE /reservas/:id
 // =====================================
 router.delete(
@@ -248,10 +248,17 @@ router.delete(
   requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
   asyncHandler(async (req, res) => {
     const { id } = req.params
+    const mensagem =
+      typeof req.body?.mensagem === "string" ? req.body.mensagem.trim() : ""
 
     const reserva = await prisma.reserva.findUnique({
       where: { id },
       include: {
+        cliente: {
+          include: {
+            usuario: true,
+          },
+        },
         maquina: {
           include: {
             lavanderia: true,
@@ -274,6 +281,7 @@ router.delete(
     }
 
     // Proprietário: só cancela se a máquina for de uma lavanderia dele
+    // e é OBRIGADO a mandar mensagem (motivo)
     if (req.user!.tipo === "PROPRIETARIO") {
       const prop = await prisma.proprietario.findUnique({
         where: { usuarioId: req.user!.id },
@@ -285,6 +293,12 @@ router.delete(
       ) {
         return res.status(403).json({ erro: "Sem permissão" })
       }
+
+      if (!mensagem) {
+        return res
+          .status(400)
+          .json({ erro: "Mensagem obrigatória ao cancelar a reserva." })
+      }
     }
 
     // ADMIN pode cancelar qualquer reserva (já passou no requireRole)
@@ -294,7 +308,101 @@ router.delete(
       data: { status: Status_reserva.CANCELADA },
     })
 
+    // Se foi o PROPRIETARIO que cancelou, cria notificação para o cliente
+    if (req.user!.tipo === "PROPRIETARIO" && reserva.cliente?.usuario) {
+      await prisma.notificacao.create({
+        data: {
+          usuarioId: reserva.cliente.usuario.id,
+          titulo: "Sua reserva foi cancelada",
+          mensagem: mensagem,
+          tipo: TipoNotificacao.ALERTA,
+        },
+      })
+    }
+
     res.json({ mensagem: "Reserva cancelada com sucesso" })
+  })
+)
+
+// =====================================
+// JOB: FINALIZAR + LEMBRETES
+// POST /reservas/job
+// =====================================
+router.post(
+  "/job",
+  verificaToken,
+  requireRole("ADMIN"), // só ADMIN pode rodar esse job manualmente
+  asyncHandler(async (req, res) => {
+    const agora = new Date()
+    const daqui15 = new Date(agora.getTime() + 15 * 60 * 1000)
+
+    // 1) "Finalizar" reservas cujo fim já passou
+    // (no painel você exibe CANCELADA como "Finalizada")
+    const finalizadas = await prisma.reserva.updateMany({
+      where: {
+        fim: { lt: agora },
+        status: { not: Status_reserva.CANCELADA },
+      },
+      data: { status: Status_reserva.CANCELADA },
+    })
+
+    // 2) Lembrete: reservas que começam em até 15min
+    const reservasProximas = await prisma.reserva.findMany({
+      where: {
+        inicio: { gte: agora, lte: daqui15 },
+        status: { not: Status_reserva.CANCELADA },
+      },
+      include: {
+        cliente: {
+          include: {
+            usuario: true,
+          },
+        },
+        maquina: true,
+      },
+    })
+
+    const janelaNotificacao = new Date(agora.getTime() - 20 * 60 * 1000)
+    let lembretesEnviados = 0
+
+    for (const reserva of reservasProximas) {
+      const usuario = reserva.cliente?.usuario
+      if (!usuario) continue
+
+      // já tem notificação recente desse tipo pra esse usuário?
+      const existeNotif = await prisma.notificacao.findFirst({
+        where: {
+          usuarioId: usuario.id,
+          titulo: "Sua reserva começa em breve",
+          createdAt: { gte: janelaNotificacao },
+        },
+      })
+
+      if (existeNotif) continue
+
+      const horarioFormatado = reserva.inicio.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+
+      await prisma.notificacao.create({
+        data: {
+          usuarioId: usuario.id,
+          titulo: "Sua reserva começa em breve",
+          mensagem: `Sua reserva para a máquina ${reserva.maquina.tipo} está marcada para ${horarioFormatado}.`,
+          tipo: TipoNotificacao.ALERTA,
+        },
+      })
+
+      lembretesEnviados++
+    }
+
+    return res.json({
+      ok: true,
+      horarioExecucao: agora.toISOString(),
+      reservasFinalizadas: finalizadas.count,
+      lembretesEnviados,
+    })
   })
 )
 
