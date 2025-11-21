@@ -52,7 +52,6 @@ router.get(
   verificaToken,
   requireRole("PROPRIETARIO"),
   asyncHandler(async (req, res) => {
-    // pega o proprietário pelo usuarioId do token
     const prop = await prisma.proprietario.findUnique({
       where: { usuarioId: req.user!.id },
     })
@@ -77,7 +76,6 @@ router.get(
 
     const ids = list.map((l) => l.id)
 
-    // reusando tua lógica de contagem de máquinas
     const totais = await prisma.maquina.groupBy({
       by: ["lavanderia_id"],
       _count: { _all: true },
@@ -147,7 +145,7 @@ router.get(
 
 // Haversine - distância em km
 function distanciaKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371 // raio da Terra em km
+  const R = 6371
   const dLat = ((lat2 - lat1) * Math.PI) / 180
   const dLon = ((lon2 - lon1) * Math.PI) / 180
   const a =
@@ -187,7 +185,6 @@ router.get(
       typeof userLng === "number" &&
       !Number.isNaN(userLng)
 
-    // 1) Buscar lavanderias com máquinas e avaliações
     const rows = await prisma.lavanderia.findMany({
       select: {
         id: true,
@@ -217,7 +214,6 @@ router.get(
       },
     })
 
-    // 2) Calcular estatísticas por lavanderia
     let lista = rows.map((l) => {
       const maquinasAtivas = l.maquinas.filter((m) => m.ativa)
       const maquinasDisponiveis = maquinasAtivas.filter(
@@ -261,12 +257,10 @@ router.get(
       }
     })
 
-    // 3) Filtro: somente lavanderias com máquinas disponíveis
     if (filtroSomenteDisponiveis) {
       lista = lista.filter((l) => l.qntMaquinasDisponiveis > 0)
     }
 
-    // 4) Filtro por raio de proximidade
     if (temCoordUsuario && typeof raio === "number" && !Number.isNaN(raio)) {
       lista = lista.filter(
         (l) =>
@@ -276,7 +270,6 @@ router.get(
       )
     }
 
-    // 5) Ordenação
     const ord = ordem === "desc" ? "desc" : "asc"
 
     if (ordenarPor === "distancia" && temCoordUsuario) {
@@ -336,8 +329,6 @@ router.get(
     res.json(lista)
   })
 )
-
-
 
 router.get(
   "/:id",
@@ -437,18 +428,18 @@ router.post(
 
     const lav = await prisma.lavanderia.create({
       data: {
-        nomeFantasia: data.nomeFantasia,
-        razaoSocial: data.razaoSocial,
-        endereco: data.endereco,
-        telefone: data.telefone,
-        horarioAbertura: data.horarioAbertura,
-        horarioFechamento: data.horarioFechamento,
-        descricao: data.descricao,
-        fotoUrl: data.fotoUrl,
-        latitude: data.latitude,
-        longitude: data.longitude,
-        proprietario_id: proprietarioId!,
-        destaque: data.destaque ?? false,
+    nomeFantasia: data.nomeFantasia,
+    razaoSocial: data.razaoSocial ?? "",   
+    endereco: data.endereco,
+    telefone: data.telefone ?? "",         
+    horarioAbertura: data.horarioAbertura ?? "",
+    horarioFechamento: data.horarioFechamento ?? "",
+    descricao: data.descricao ?? "",
+    fotoUrl: data.fotoUrl ?? "",
+    latitude: data.latitude ?? null,
+    longitude: data.longitude ?? null,
+    proprietario_id: proprietarioId!,
+    destaque: data.destaque ?? false,
       },
       select: {
         id: true,
@@ -501,7 +492,12 @@ router.put(
       if (!lav) {
         return res.status(404).json({ erro: "Lavanderia não encontrada" })
       }
-      if (lav.proprietario_id !== data.proprietario_id) {
+
+      const prop = await prisma.proprietario.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+
+      if (!prop || lav.proprietario_id !== prop.id) {
         return res
           .status(403)
           .json({ erro: "Somente o proprietário dono pode editar" })
@@ -571,18 +567,53 @@ router.delete(
 )
 
 // =============================
-// TOGGLE DESTAQUE (ADMIN)
+// TOGGLE DESTAQUE (ADMIN + PROPRIETARIO DONO)
 // =============================
 
 router.patch(
   "/:id/destaque",
   verificaToken,
-  requireRole("ADMIN"),
+  requireRole("PROPRIETARIO", "ADMIN"),
   asyncHandler(async (req, res) => {
     const { id } = req.params
+
+    // Se for PROPRIETARIO, garante que é dono da lavanderia
+    if (req.user!.tipo === "PROPRIETARIO") {
+      const prop = await prisma.proprietario.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+
+      if (!prop) {
+        return res.status(403).json({ erro: "Proprietário inválido" })
+      }
+
+      const lav = await prisma.lavanderia.findUnique({
+        where: { id },
+        select: { proprietario_id: true },
+      })
+
+      if (!lav) {
+        return res.status(404).json({ erro: "Lavanderia não encontrada" })
+      }
+
+      if (lav.proprietario_id !== prop.id) {
+        return res
+          .status(403)
+          .json({ erro: "Somente o proprietário dono pode alterar o destaque" })
+      }
+    }
+
     const atual = await prisma.lavanderia.findUnique({
       where: { id },
-      select: { id: true, destaque: true },
+      select: {
+        id: true,
+        nomeFantasia: true,
+        endereco: true,
+        fotoUrl: true,
+        destaque: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
 
     if (!atual) {
