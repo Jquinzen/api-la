@@ -21,7 +21,7 @@ declare global {
   }
 }
 
-
+// Helper: pega o proprietário e as lavanderias desse usuário
 async function getContextoProprietario(usuarioId: string) {
   const prop = await prisma.proprietario.findUnique({
     where: { usuarioId },
@@ -38,6 +38,7 @@ async function getContextoProprietario(usuarioId: string) {
 
   return { proprietarioId: prop.id, lavanderiaIds: lavIds }
 }
+
 
 
 router.get(
@@ -66,7 +67,6 @@ router.get(
       prisma.reserva.count({
         where: { maquina: { lavanderia_id: { in: lavanderiaIds } } },
       }),
- 
       prisma.reserva.groupBy({
         by: ["cliente_id"],
         where: { maquina: { lavanderia_id: { in: lavanderiaIds } } },
@@ -74,8 +74,8 @@ router.get(
     ])
 
     res.json({
-      clientes: clientesGroup.length,
-      lavanderias: lavanderiaIds.length,
+      clientes: clientesGroup.length,      // clientes distintos
+      lavanderias: lavanderiaIds.length,   // qtd de lavanderias do proprietário
       maquinas,
       reservas,
     })
@@ -110,6 +110,7 @@ router.get(
 )
 
 
+
 router.get(
   "/proprietario/reservasStatus",
   verificaToken,
@@ -135,7 +136,7 @@ router.get(
     })
 
     const resultado = rows.map((r) => ({
-      status: r.status,       
+      status: r.status,
       num: r._count.status,
     }))
 
