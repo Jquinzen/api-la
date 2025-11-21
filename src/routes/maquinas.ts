@@ -7,32 +7,6 @@ import { maquinaSchema } from "../utils/validators.js"
 
 const router = Router()
 
-  router.get(
-    "/:id",
-    asyncHandler(async (req, res) => {
-      const id = req.params.id;
-
-      const maquina = await prisma.maquina.findUnique({
-        where: { id },
-        include: {
-          lavanderia: {
-            select: {
-              id: true,
-              nomeFantasia: true,
-              endereco: true,
-              fotoUrl: true,
-            },
-          },
-        },
-      });
-
-      if (!maquina) {
-        return res.status(404).json({ erro: "Máquina não encontrada" });
-      }
-
-      res.json(maquina);
-    })
-  );
 
 router.get(
   "/proprietario/minhas",
@@ -42,7 +16,10 @@ router.get(
     const prop = await prisma.proprietario.findUnique({
       where: { usuarioId: req.user!.id },
     })
-    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
+
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" })
+    }
 
     const maquinas = await prisma.maquina.findMany({
       where: {
@@ -53,7 +30,12 @@ router.get(
       orderBy: { createdAt: "desc" },
       include: {
         lavanderia: {
-          select: { id: true, nomeFantasia: true },
+          select: {
+            id: true,
+            nomeFantasia: true,
+            endereco: true,
+            fotoUrl: true,
+          },
         },
       },
     })
@@ -61,6 +43,7 @@ router.get(
     res.json(maquinas)
   })
 )
+
 
 router.get(
   "/",
@@ -73,7 +56,6 @@ router.get(
     const where: any = {}
 
     if (status) {
-      
       where.status_maquina = status
     }
 
@@ -88,14 +70,93 @@ router.get(
 
     const list = await prisma.maquina.findMany({
       where,
-      orderBy: { createdAt: "desc" }, // 👈 no schema é createdAt, não createAt
+      orderBy: { createdAt: "desc" },
     })
 
     res.json(list)
   })
 )
 
-// POST /maquinas
+
+router.get(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const id = req.params.id
+
+    const maquina = await prisma.maquina.findUnique({
+      where: { id },
+      include: {
+        lavanderia: {
+          select: {
+            id: true,
+            nomeFantasia: true,
+            endereco: true,
+            fotoUrl: true,
+          },
+        },
+      },
+    })
+
+    if (!maquina) {
+      return res.status(404).json({ erro: "Máquina não encontrada" })
+    }
+
+    res.json(maquina)
+  })
+)
+
+
+router.patch(
+  "/toggle-ativa/:id",
+  verificaToken,
+  requireRole("PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params
+
+    const maquina = await prisma.maquina.findUnique({
+      where: { id },
+      include: {
+        lavanderia: true,
+      },
+    })
+
+    if (!maquina) {
+      return res.status(404).json({ erro: "Máquina não encontrada" })
+    }
+
+   
+    if (req.user!.tipo === "PROPRIETARIO") {
+      const prop = await prisma.proprietario.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+
+      if (!prop || maquina.lavanderia.proprietario_id !== prop.id) {
+        return res.status(403).json({ erro: "Sem permissão" })
+      }
+    }
+
+    const updated = await prisma.maquina.update({
+      where: { id },
+      data: {
+        ativa: !maquina.ativa,
+      },
+      include: {
+        lavanderia: {
+          select: {
+            id: true,
+            nomeFantasia: true,
+            endereco: true,
+            fotoUrl: true,
+          },
+        },
+      },
+    })
+
+    res.json(updated)
+  })
+)
+
+
 router.post(
   "/",
   verificaToken,
@@ -121,13 +182,23 @@ router.post(
 
     const created = await prisma.maquina.create({
       data,
+      include: {
+        lavanderia: {
+          select: {
+            id: true,
+            nomeFantasia: true,
+            endereco: true,
+            fotoUrl: true,
+          },
+        },
+      },
     })
 
     res.status(201).json(created)
   })
 )
 
-// PUT /maquinas/:id
+
 router.put(
   "/:id",
   verificaToken,
@@ -158,13 +229,23 @@ router.put(
     const updated = await prisma.maquina.update({
       where: { id },
       data,
+      include: {
+        lavanderia: {
+          select: {
+            id: true,
+            nomeFantasia: true,
+            endereco: true,
+            fotoUrl: true,
+          },
+        },
+      },
     })
 
     res.json(updated)
   })
 )
 
-// DELETE /maquinas/:id
+
 router.delete(
   "/:id",
   verificaToken,
