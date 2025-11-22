@@ -283,7 +283,7 @@ router.delete(
       data: { status: Status_reserva.CANCELADA },
     })
 
-    // Notificar cliente quando o proprietário cancelar
+ 
     if (req.user!.tipo === "PROPRIETARIO" && reserva.cliente?.usuario) {
       await prisma.notificacao.create({
         data: {
@@ -402,6 +402,106 @@ router.post(
     }
 
     console.log("Lembretes enviados:", lembretesEnviados)
+
+    return res.json({
+      ok: true,
+      horarioExecucao: agora.toISOString(),
+      reservasMarcadasComoFeitas,
+      lembretesEnviados,
+    })
+  })
+)
+
+router.get(
+  "/job",
+  asyncHandler(async (req, res) => {
+
+    if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ erro: "Unauthorized" })
+    }
+
+    const agora = new Date()
+    const daqui15 = new Date(agora.getTime() + 15 * 60 * 1000)
+
+    console.log("### CRON /reservas/job executado em:", agora.toISOString())
+
+
+    const reservasParaFinalizar = await prisma.reserva.findMany({
+      where: {
+        fim: { lt: agora },
+        status: Status_reserva.EM_ANDAMENTO,
+      },
+      select: {
+        id: true,
+        maquina_id: true
+      },
+    })
+
+    const idsReservas = reservasParaFinalizar.map((r) => r.id)
+    const idsMaquinas = reservasParaFinalizar.map((r) => r.maquina_id)
+
+    let reservasMarcadasComoFeitas = 0
+
+    if (idsReservas.length > 0) {
+      const result = await prisma.reserva.updateMany({
+        where: { id: { in: idsReservas } },
+        data: { status: Status_reserva.FEITA },
+      })
+
+      reservasMarcadasComoFeitas = result.count
+
+
+      await prisma.maquina.updateMany({
+        where: { id: { in: idsMaquinas } },
+        data: { status_maquina: Status_maquina.DISPONIVEL },
+      })
+    }
+
+
+    const reservasProximas = await prisma.reserva.findMany({
+      where: {
+        inicio: { gte: agora, lte: daqui15 },
+        status: { not: Status_reserva.CANCELADA },
+      },
+      include: {
+        cliente: { include: { usuario: true } },
+        maquina: true,
+      },
+    })
+
+    const janelaNotificacao = new Date(agora.getTime() - 20 * 60 * 1000)
+    let lembretesEnviados = 0
+
+    for (const reserva of reservasProximas) {
+      const usuario = reserva.cliente?.usuario
+      if (!usuario) continue
+
+      const existeNotif = await prisma.notificacao.findFirst({
+        where: {
+          usuarioId: usuario.id,
+          titulo: "Sua reserva começa em breve",
+          createdAt: { gte: janelaNotificacao },
+        },
+      })
+
+      if (existeNotif) continue
+
+      const horarioFormatado = reserva.inicio.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+
+      await prisma.notificacao.create({
+        data: {
+          usuarioId: usuario.id,
+          titulo: "Sua reserva começa em breve",
+          mensagem: `Sua reserva para a máquina ${reserva.maquina.tipo} está marcada para ${horarioFormatado}.`,
+          tipo: TipoNotificacao.ALERTA,
+        },
+      })
+
+      lembretesEnviados++
+    }
 
     return res.json({
       ok: true,
