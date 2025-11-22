@@ -24,7 +24,6 @@ async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
 }
 
 
-
 router.get(
   "/",
   verificaToken,
@@ -34,7 +33,9 @@ router.get(
       where: { usuarioId: req.user!.id },
     })
 
-    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" })
+    }
 
     const reservas = await prisma.reserva.findMany({
       where: {
@@ -79,7 +80,6 @@ router.get(
 )
 
 
-
 router.post(
   "/",
   verificaToken,
@@ -90,7 +90,9 @@ router.post(
     const cliente = await prisma.cliente.findUnique({
       where: { usuarioId: req.user!.id },
     })
-    if (!cliente) return res.status(403).json({ erro: "Cliente inválido" })
+    if (!cliente) {
+      return res.status(403).json({ erro: "Cliente inválido" })
+    }
 
     const maquina = await prisma.maquina.findUnique({
       where: { id: payload.maquina_id },
@@ -106,7 +108,9 @@ router.post(
 
     const conflito = await existeConflito(maquina.id, inicio, fim)
     if (conflito) {
-      return res.status(400).json({ erro: "Horário indisponível" })
+      return res
+        .status(400)
+        .json({ erro: "Horário indisponível. Máquina já reservada nesse período." })
     }
 
     const reserva = await prisma.reserva.create({
@@ -146,7 +150,6 @@ router.post(
 )
 
 
-
 router.get(
   "/minhas",
   verificaToken,
@@ -176,6 +179,45 @@ router.get(
   })
 )
 
+router.get(
+  "/ocupados",
+  verificaToken,
+  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { maquina_id, data } = req.query
+
+    if (!maquina_id || !data) {
+      return res
+        .status(400)
+        .json({ erro: "maquina_id e data são obrigatórios" })
+    }
+
+    const inicioDia = new Date(`${data}T00:00:00`)
+    const fimDia = new Date(`${data}T23:59:59`)
+
+    const reservas = await prisma.reserva.findMany({
+      where: {
+        maquina_id: String(maquina_id),
+        status: { not: Status_reserva.CANCELADA },
+        inicio: { gte: inicioDia },
+        fim: { lte: fimDia },
+      },
+      select: {
+        inicio: true,
+        fim: true,
+      },
+    })
+
+    const format = (d: Date) => d.toISOString().substring(11, 16)
+
+    res.json(
+      reservas.map((r) => ({
+        inicio: format(r.inicio),
+        fim: format(r.fim),
+      }))
+    )
+  })
+)
 
 
 router.delete(
@@ -184,38 +226,55 @@ router.delete(
   requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
   asyncHandler(async (req, res) => {
     const { id } = req.params
-    const mensagem = typeof req.body?.mensagem === "string" ? req.body.mensagem.trim() : ""
+    const mensagem =
+      typeof req.body?.mensagem === "string" ? req.body.mensagem.trim() : ""
 
     const reserva = await prisma.reserva.findUnique({
       where: { id },
       include: {
-        cliente: { include: { usuario: true } },
-        maquina: { include: { lavanderia: true } },
+        cliente: {
+          include: {
+            usuario: true,
+          },
+        },
+        maquina: {
+          include: {
+            lavanderia: true,
+          },
+        },
       },
     })
 
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" })
 
+  
     if (req.user!.tipo === "CLIENTE") {
       const cli = await prisma.cliente.findUnique({
         where: { usuarioId: req.user!.id },
       })
+
       if (!cli || cli.id !== reserva.cliente_id) {
         return res.status(403).json({ erro: "Sem permissão" })
       }
     }
 
+    
     if (req.user!.tipo === "PROPRIETARIO") {
       const prop = await prisma.proprietario.findUnique({
         where: { usuarioId: req.user!.id },
       })
 
-      if (!prop || reserva.maquina.lavanderia.proprietario_id !== prop.id) {
+      if (
+        !prop ||
+        reserva.maquina.lavanderia.proprietario_id !== prop.id
+      ) {
         return res.status(403).json({ erro: "Sem permissão" })
       }
 
       if (!mensagem) {
-        return res.status(400).json({ erro: "Mensagem obrigatória" })
+        return res
+          .status(400)
+          .json({ erro: "Mensagem obrigatória ao cancelar a reserva." })
       }
     }
 
@@ -224,12 +283,13 @@ router.delete(
       data: { status: Status_reserva.CANCELADA },
     })
 
+    // Notificar cliente quando o proprietário cancelar
     if (req.user!.tipo === "PROPRIETARIO" && reserva.cliente?.usuario) {
       await prisma.notificacao.create({
         data: {
           usuarioId: reserva.cliente.usuario.id,
           titulo: "Sua reserva foi cancelada",
-          mensagem,
+          mensagem: mensagem,
           tipo: TipoNotificacao.ALERTA,
         },
       })
@@ -240,26 +300,31 @@ router.delete(
 )
 
 
-
-router.get(
+router.post(
   "/job",
+  verificaToken,
+  requireRole("ADMIN", "PROPRIETARIO"),
   asyncHandler(async (req, res) => {
-    if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-      return res.status(401).json({ erro: "Unauthorized" })
-    }
-
     const agora = new Date()
+    console.log("### /reservas/job executado em:", agora.toISOString(), "user:", req.user)
+
     const daqui15 = new Date(agora.getTime() + 15 * 60 * 1000)
 
-    console.log("### CRON executado:", agora.toISOString())
 
-    // FINALIZAR
     const reservasParaFinalizar = await prisma.reserva.findMany({
       where: {
         fim: { lt: agora },
         status: Status_reserva.EM_ANDAMENTO,
       },
+      select: {
+        id: true,
+        maquina_id: true,
+        fim: true,
+        status: true,
+      },
     })
+
+    console.log("Reservas EM_ANDAMENTO com fim < agora:", reservasParaFinalizar)
 
     const idsReservas = reservasParaFinalizar.map((r) => r.id)
     const idsMaquinas = reservasParaFinalizar.map((r) => r.maquina_id)
@@ -267,33 +332,42 @@ router.get(
     let reservasMarcadasComoFeitas = 0
 
     if (idsReservas.length > 0) {
-      const res1 = await prisma.reserva.updateMany({
+      const result = await prisma.reserva.updateMany({
         where: { id: { in: idsReservas } },
         data: { status: Status_reserva.FEITA },
       })
+      reservasMarcadasComoFeitas = result.count
+      console.log("Reservas marcadas como FEITA:", reservasMarcadasComoFeitas)
 
-      reservasMarcadasComoFeitas = res1.count
-
-      await prisma.maquina.updateMany({
-        where: { id: { in: idsMaquinas } },
-        data: { status_maquina: Status_maquina.DISPONIVEL },
-      })
+      if (idsMaquinas.length > 0) {
+        const liberaMaquinas = await prisma.maquina.updateMany({
+          where: { id: { in: idsMaquinas } },
+          data: { status_maquina: Status_maquina.DISPONIVEL },
+        })
+        console.log("Máquinas liberadas:", liberaMaquinas.count)
+      }
+    } else {
+      console.log("Nenhuma reserva para finalizar.")
     }
 
-    // PRÓXIMAS RESERVAS
     const reservasProximas = await prisma.reserva.findMany({
       where: {
         inicio: { gte: agora, lte: daqui15 },
         status: { not: Status_reserva.CANCELADA },
       },
       include: {
-        cliente: { include: { usuario: true } },
+        cliente: {
+          include: {
+            usuario: true,
+          },
+        },
         maquina: true,
       },
     })
 
-    const janelaNotificacao = new Date(agora.getTime() - 20 * 60 * 1000)
+    console.log("Reservas próximas (<= 15 min):", reservasProximas.length)
 
+    const janelaNotificacao = new Date(agora.getTime() - 20 * 60 * 1000)
     let lembretesEnviados = 0
 
     for (const reserva of reservasProximas) {
@@ -310,7 +384,7 @@ router.get(
 
       if (existeNotif) continue
 
-      const hora = reserva.inicio.toLocaleTimeString("pt-BR", {
+      const horarioFormatado = reserva.inicio.toLocaleTimeString("pt-BR", {
         hour: "2-digit",
         minute: "2-digit",
       })
@@ -319,13 +393,15 @@ router.get(
         data: {
           usuarioId: usuario.id,
           titulo: "Sua reserva começa em breve",
-          mensagem: `Sua reserva da máquina ${reserva.maquina.tipo} começa às ${hora}.`,
+          mensagem: `Sua reserva para a máquina ${reserva.maquina.tipo} está marcada para ${horarioFormatado}.`,
           tipo: TipoNotificacao.ALERTA,
         },
       })
 
       lembretesEnviados++
     }
+
+    console.log("Lembretes enviados:", lembretesEnviados)
 
     return res.json({
       ok: true,
