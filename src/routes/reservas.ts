@@ -303,7 +303,7 @@ router.delete(
 router.post(
   "/job",
   verificaToken,
-  requireRole("ADMIN"),
+  requireRole("ADMIN", "PROPRIETARIO"),
   asyncHandler(async (req, res) => {
     const agora = new Date()
     console.log("### /reservas/job executado em:", agora.toISOString(), "user:", req.user)
