@@ -23,9 +23,7 @@ async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
   })
 }
 
-// ====================================
-// LISTAR RESERVAS DO PROPRIETÁRIO
-// ====================================
+
 router.get(
   "/",
   verificaToken,
@@ -81,9 +79,7 @@ router.get(
   })
 )
 
-// ====================================
-// CRIAR RESERVA (CLIENTE)
-// ====================================
+
 router.post(
   "/",
   verificaToken,
@@ -110,7 +106,6 @@ router.post(
     const tempoOperacaoMin = maquina.tipo === "LAVADORA" ? 45 : 30
     const fim = new Date(inicio.getTime() + tempoOperacaoMin * 60 * 1000)
 
-    // verifica conflitos
     const conflito = await existeConflito(maquina.id, inicio, fim)
     if (conflito) {
       return res
@@ -154,9 +149,7 @@ router.post(
   })
 )
 
-// ====================================
-// MINHAS RESERVAS (CLIENTE)
-// ====================================
+
 router.get(
   "/minhas",
   verificaToken,
@@ -186,9 +179,6 @@ router.get(
   })
 )
 
-// ====================================
-// HORÁRIOS OCUPADOS DA MÁQUINA
-// ====================================
 router.get(
   "/ocupados",
   verificaToken,
@@ -229,9 +219,7 @@ router.get(
   })
 )
 
-// ====================================
-// CANCELAR RESERVA
-// ====================================
+
 router.delete(
   "/:id",
   verificaToken,
@@ -259,7 +247,7 @@ router.delete(
 
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" })
 
-    // CLIENTE só pode cancelar a própria reserva
+  
     if (req.user!.tipo === "CLIENTE") {
       const cli = await prisma.cliente.findUnique({
         where: { usuarioId: req.user!.id },
@@ -270,7 +258,7 @@ router.delete(
       }
     }
 
-    // PROPRIETARIO só pode cancelar de suas lavanderias e precisa mandar mensagem
+    
     if (req.user!.tipo === "PROPRIETARIO") {
       const prop = await prisma.proprietario.findUnique({
         where: { usuarioId: req.user!.id },
@@ -311,18 +299,18 @@ router.delete(
   })
 )
 
-// ====================================
-// JOB: FINALIZAR & LEMBRAR RESERVAS
-// ====================================
+
 router.post(
   "/job",
   verificaToken,
   requireRole("ADMIN"),
   asyncHandler(async (req, res) => {
     const agora = new Date()
+    console.log("### /reservas/job executado em:", agora.toISOString(), "user:", req.user)
+
     const daqui15 = new Date(agora.getTime() + 15 * 60 * 1000)
 
-    // 1) Buscar reservas que já passaram do horário e ainda estão EM_ANDAMENTO
+
     const reservasParaFinalizar = await prisma.reserva.findMany({
       where: {
         fim: { lt: agora },
@@ -331,32 +319,37 @@ router.post(
       select: {
         id: true,
         maquina_id: true,
+        fim: true,
+        status: true,
       },
     })
+
+    console.log("Reservas EM_ANDAMENTO com fim < agora:", reservasParaFinalizar)
 
     const idsReservas = reservasParaFinalizar.map((r) => r.id)
     const idsMaquinas = reservasParaFinalizar.map((r) => r.maquina_id)
 
     let reservasMarcadasComoFeitas = 0
 
-    // 2) Marcar como FEITA (concluída)
     if (idsReservas.length > 0) {
       const result = await prisma.reserva.updateMany({
         where: { id: { in: idsReservas } },
         data: { status: Status_reserva.FEITA },
       })
       reservasMarcadasComoFeitas = result.count
+      console.log("Reservas marcadas como FEITA:", reservasMarcadasComoFeitas)
 
-      // 3) Liberar as máquinas dessas reservas (caso estejam presas)
       if (idsMaquinas.length > 0) {
-        await prisma.maquina.updateMany({
+        const liberaMaquinas = await prisma.maquina.updateMany({
           where: { id: { in: idsMaquinas } },
           data: { status_maquina: Status_maquina.DISPONIVEL },
         })
+        console.log("Máquinas liberadas:", liberaMaquinas.count)
       }
+    } else {
+      console.log("Nenhuma reserva para finalizar.")
     }
 
-    // 4) Lembretes para reservas que começam em até 15 minutos
     const reservasProximas = await prisma.reserva.findMany({
       where: {
         inicio: { gte: agora, lte: daqui15 },
@@ -371,6 +364,8 @@ router.post(
         maquina: true,
       },
     })
+
+    console.log("Reservas próximas (<= 15 min):", reservasProximas.length)
 
     const janelaNotificacao = new Date(agora.getTime() - 20 * 60 * 1000)
     let lembretesEnviados = 0
@@ -405,6 +400,8 @@ router.post(
 
       lembretesEnviados++
     }
+
+    console.log("Lembretes enviados:", lembretesEnviados)
 
     return res.json({
       ok: true,
