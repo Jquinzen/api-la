@@ -46,7 +46,7 @@ router.patch(
 router.post(
   "/",
   verificaToken,
-  requireRole("ADMIN"),
+  requireRole("ADMIN", "PROPRIETARIO"),
   asyncHandler(async (req, res) => {
     const { usuarioId, titulo, mensagem, tipo } = req.body
 
