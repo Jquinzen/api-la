@@ -67,4 +67,38 @@ router.post(
   })
 )
 
+
+router.put(
+  "/me/senha",
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const { senhaAtual, novaSenha } = req.body;
+
+    if (!senhaAtual || !novaSenha) {
+      return res.status(400).json({ erro: "Campos incompletos." });
+    }
+
+    const usuario = await prisma.usuario.findUnique({ where: { id: userId } });
+    if (!usuario) return res.status(404).json({ erro: "Usuário não encontrado." });
+
+    // verifica senha atual
+    const ok = await bcrypt.compare(senhaAtual, usuario.senha);
+    if (!ok) return res.status(401).json({ erro: "Senha atual incorreta." });
+
+    const errosSenha = validaSenha(novaSenha);
+    if (errosSenha.length > 0) {
+      return res.status(400).json({ erro: "Senha inválida", detalhes: errosSenha });
+    }
+
+    const hash = await bcrypt.hash(novaSenha, 10);
+
+    await prisma.usuario.update({
+      where: { id: userId },
+      data: { senha: hash },
+    });
+
+    res.json({ ok: true, mensagem: "Senha atualizada com sucesso!" });
+  })
+);
+
 export default router

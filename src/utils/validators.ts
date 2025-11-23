@@ -98,7 +98,6 @@ export const pagamentoSchema = z.object({
 export const avaliacaoSchema = z.object({
   nota: z.number().int().min(1).max(5),
   comentario: z.string().min(1).max(255),
-  cliente_id: z.string().uuid(),
   lavanderia_id: z.string().uuid(),
 })
 

@@ -24,6 +24,7 @@ async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
 }
 
 
+
 router.get(
   "/",
   verificaToken,
@@ -79,6 +80,42 @@ router.get(
   })
 )
 
+router.get(
+  "/:id",
+  verificaToken,
+  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    const reserva = await prisma.reserva.findUnique({
+      where: { id },
+      include: {
+        maquina: {
+          include: {
+            lavanderia: true
+          }
+        },
+        pagamento: true
+      }
+    });
+
+    if (!reserva) {
+      return res.status(404).json({ erro: "Reserva não encontrada" });
+    }
+
+    if (req.user!.tipo === "CLIENTE") {
+      const cli = await prisma.cliente.findUnique({
+        where: { usuarioId: req.user!.id },
+      });
+
+      if (!cli || cli.id !== reserva.cliente_id) {
+        return res.status(403).json({ erro: "Sem permissão" });
+      }
+    }
+
+    res.json(reserva);
+  })
+);
 
 router.post(
   "/",

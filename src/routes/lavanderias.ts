@@ -249,6 +249,8 @@ router.get(
         destaque: l.destaque,
         createdAt: l.createdAt,
         updatedAt: l.updatedAt,
+        latitude: l.latitude,
+        longitude: l.longitude,
         qntMaquinasDisponiveis: maquinasDisponiveis.length,
         qntMaquinasTotal: maquinasAtivas.length,
         precoMedio,

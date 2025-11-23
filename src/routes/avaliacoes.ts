@@ -21,6 +21,19 @@ router.post(
     if (!cli) {
       return res.status(403).json({ erro: "Sem permissão" })
     }
+    
+    const jaExiste = await prisma.avaliacao.findFirst({
+      where: {
+        cliente_id: cli.id,
+        lavanderia_id: data.lavanderia_id,
+      },
+    })
+
+    if (jaExiste) {
+      return res.status(409).json({
+        erro: "Você já avaliou esta lavanderia",
+      })
+    }
 
     const av = await prisma.avaliacao.create({
       data: {
