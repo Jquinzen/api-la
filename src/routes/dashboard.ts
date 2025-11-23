@@ -1,12 +1,10 @@
-// src/routes/dashboard.ts
-import { Router } from "express"
-import { prisma } from "../lib/prisma.js"
-import { asyncHandler } from "../utils/asyncHandler.js"
-import { verificaToken } from "../middlewares/verificaToken.js"
-import { requireRole } from "../middlewares/requireRole.js"
+import { Router } from "express";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { verificaToken } from "../middlewares/verificaToken.js";
+import { requireRole } from "../middlewares/requireRole.js";
 
-const router = Router()
-
+const router = Router();
 
 router.get(
   "/proprietario/gerais",
@@ -15,38 +13,64 @@ router.get(
   asyncHandler(async (req, res) => {
     const prop = await prisma.proprietario.findUnique({
       where: { usuarioId: req.user!.id },
-    })
+    });
 
-    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" });
+    }
 
- 
     const lavs = await prisma.lavanderia.findMany({
       where: { proprietario_id: prop.id },
       select: { id: true },
-    })
+    });
 
-    const lavIds = lavs.map(l => l.id)
+    const lavIds = lavs.map((l) => l.id);
 
-  
-    const [maquinas, reservas, ] = await Promise.all([
+    if (lavIds.length === 0) {
+      return res.json({
+        clientes: 0,
+        lavanderias: 0,
+        maquinas: 0,
+        reservas: 0,
+      });
+    }
+
+    const [maquinas, reservas, clientesGroup] = await Promise.all([
       prisma.maquina.count({
         where: { lavanderia_id: { in: lavIds } },
       }),
 
       prisma.reserva.count({
-        where: { maquina: { lavanderia_id: { in: lavIds } } },
+        where: {
+          maquina: {
+            lavanderia_id: { in: lavIds },
+          },
+        },
       }),
-    ])
+
+      prisma.reserva.groupBy({
+        by: ["cliente_id"],
+        where: {
+          maquina: {
+            lavanderia_id: { in: lavIds },
+          },
+        },
+        _count: {
+          cliente_id: true,
+        },
+      }),
+    ]);
+
+    const clientesUnicos = clientesGroup.length;
 
     res.json({
-      clientes: 0,
+      clientes: clientesUnicos,
       lavanderias: lavIds.length,
       maquinas,
       reservas,
-    })
+    });
   })
-)
-
+);
 
 router.get(
   "/proprietario/maquinas",
@@ -55,9 +79,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const prop = await prisma.proprietario.findUnique({
       where: { usuarioId: req.user!.id },
-    })
+    });
 
-    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" });
+    }
 
     const maquinas = await prisma.maquina.findMany({
       where: {
@@ -67,12 +93,11 @@ router.get(
         lavanderia: true,
       },
       orderBy: { createdAt: "desc" },
-    })
+    });
 
-    res.json(maquinas)
+    res.json(maquinas);
   })
-)
-
+);
 
 router.get(
   "/proprietario/reservasStatus",
@@ -81,19 +106,23 @@ router.get(
   asyncHandler(async (req, res) => {
     const prop = await prisma.proprietario.findUnique({
       where: { usuarioId: req.user!.id },
-    })
+    });
 
-    if (!prop) return res.status(403).json({ erro: "Proprietário inválido" })
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" });
+    }
 
-   
     const lavs = await prisma.lavanderia.findMany({
       where: { proprietario_id: prop.id },
       select: { id: true },
-    })
+    });
 
-    const lavIds = lavs.map(l => l.id)
+    const lavIds = lavs.map((l) => l.id);
 
-  
+    if (lavIds.length === 0) {
+      return res.json([]);
+    }
+
     const rows = await prisma.reserva.groupBy({
       by: ["status"],
       _count: { status: true },
@@ -102,15 +131,15 @@ router.get(
           lavanderia_id: { in: lavIds },
         },
       },
-    })
+    });
 
-    const resultado = rows.map(r => ({
+    const resultado = rows.map((r) => ({
       status: r.status,
       num: r._count.status,
-    }))
+    }));
 
-    res.json(resultado)
+    res.json(resultado);
   })
-)
+);
 
-export default router
+export default router;
