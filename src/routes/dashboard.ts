@@ -28,7 +28,7 @@ router.get(
     const lavIds = lavs.map(l => l.id)
 
   
-    const [maquinas, reservas, clientesDistintos] = await Promise.all([
+    const [maquinas, reservas, reservasClientes] = await Promise.all([
       prisma.maquina.count({
         where: { lavanderia_id: { in: lavIds } },
       }),
@@ -38,18 +38,18 @@ router.get(
       }),
 
       prisma.reserva.findMany({
-      where: {
-      maquina: { lavanderia_id: { in: lavIds } },
-      cliente_id: { not: null },
-      },
+        where: {
+          maquina: { lavanderia_id: { in: lavIds } },
+          cliente_id: { not: null },
+    },
       select: { cliente_id: true },
-      distinct: ['cliente_id'],
-      }),
-    
+     }),
     ])
+    
+    const clientes = new Set(reservasClientes.map(r => r.cliente_id)).size
 
     res.json({
-      clientes: clientesDistintos.length,
+      clientes,
       lavanderias: lavIds.length,
       maquinas,
       reservas,
