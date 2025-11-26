@@ -24,99 +24,6 @@ async function existeConflito(maquina_id: string, inicio: Date, fim: Date) {
 }
 
 
-
-router.get(
-  "/",
-  verificaToken,
-  requireRole("PROPRIETARIO"),
-  asyncHandler(async (req, res) => {
-    const prop = await prisma.proprietario.findUnique({
-      where: { usuarioId: req.user!.id },
-    })
-
-    if (!prop) {
-      return res.status(403).json({ erro: "Proprietário inválido" })
-    }
-
-    const reservas = await prisma.reserva.findMany({
-      where: {
-        maquina: {
-          lavanderia: {
-            proprietario_id: prop.id,
-          },
-        },
-      },
-      orderBy: { inicio: "desc" },
-      include: {
-        maquina: {
-          include: {
-            lavanderia: {
-              select: {
-                id: true,
-                nomeFantasia: true,
-                endereco: true,
-                fotoUrl: true,
-              },
-            },
-          },
-        },
-        cliente: {
-          include: {
-            usuario: {
-              select: {
-                id: true,
-                nome: true,
-                email: true,
-                fotoUrl: true,
-              },
-            },
-          },
-        },
-        pagamento: true,
-      },
-    })
-
-    res.json(reservas)
-  })
-)
-
-router.get(
-  "/:id",
-  verificaToken,
-  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
-  asyncHandler(async (req, res) => {
-    const { id } = req.params;
-
-    const reserva = await prisma.reserva.findUnique({
-      where: { id },
-      include: {
-        maquina: {
-          include: {
-            lavanderia: true
-          }
-        },
-        pagamento: true
-      }
-    });
-
-    if (!reserva) {
-      return res.status(404).json({ erro: "Reserva não encontrada" });
-    }
-
-    if (req.user!.tipo === "CLIENTE") {
-      const cli = await prisma.cliente.findUnique({
-        where: { usuarioId: req.user!.id },
-      });
-
-      if (!cli || cli.id !== reserva.cliente_id) {
-        return res.status(403).json({ erro: "Sem permissão" });
-      }
-    }
-
-    res.json(reserva);
-  })
-);
-
 router.post(
   "/",
   verificaToken,
@@ -188,6 +95,62 @@ router.post(
 
 
 router.get(
+  "/todas",
+  verificaToken,
+  requireRole("PROPRIETARIO"),
+  asyncHandler(async (req, res) => {
+    const prop = await prisma.proprietario.findUnique({
+      where: { usuarioId: req.user!.id },
+    })
+
+    if (!prop) {
+      return res.status(403).json({ erro: "Proprietário inválido" })
+    }
+
+    const reservas = await prisma.reserva.findMany({
+      where: {
+        maquina: {
+          lavanderia: {
+            proprietario_id: prop.id,
+          },
+        },
+      },
+      orderBy: { inicio: "desc" },
+      include: {
+        maquina: {
+          include: {
+            lavanderia: {
+              select: {
+                id: true,
+                nomeFantasia: true,
+                endereco: true,
+                fotoUrl: true,
+              },
+            },
+          },
+        },
+        cliente: {
+          include: {
+            usuario: {
+              select: {
+                id: true,
+                nome: true,
+                email: true,
+                fotoUrl: true,
+              },
+            },
+          },
+        },
+        pagamento: true,
+      },
+    })
+
+    res.json(reservas)
+  })
+)
+
+
+router.get(
   "/minhas",
   verificaToken,
   requireRole("CLIENTE"),
@@ -215,6 +178,7 @@ router.get(
     res.json(reservas)
   })
 )
+
 
 router.get(
   "/ocupados",
@@ -253,86 +217,6 @@ router.get(
         fim: format(r.fim),
       }))
     )
-  })
-)
-
-
-router.delete(
-  "/:id",
-  verificaToken,
-  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
-  asyncHandler(async (req, res) => {
-    const { id } = req.params
-    const mensagem =
-      typeof req.body?.mensagem === "string" ? req.body.mensagem.trim() : ""
-
-    const reserva = await prisma.reserva.findUnique({
-      where: { id },
-      include: {
-        cliente: {
-          include: {
-            usuario: true,
-          },
-        },
-        maquina: {
-          include: {
-            lavanderia: true,
-          },
-        },
-      },
-    })
-
-    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" })
-
-  
-    if (req.user!.tipo === "CLIENTE") {
-      const cli = await prisma.cliente.findUnique({
-        where: { usuarioId: req.user!.id },
-      })
-
-      if (!cli || cli.id !== reserva.cliente_id) {
-        return res.status(403).json({ erro: "Sem permissão" })
-      }
-    }
-
-    
-    if (req.user!.tipo === "PROPRIETARIO") {
-      const prop = await prisma.proprietario.findUnique({
-        where: { usuarioId: req.user!.id },
-      })
-
-      if (
-        !prop ||
-        reserva.maquina.lavanderia.proprietario_id !== prop.id
-      ) {
-        return res.status(403).json({ erro: "Sem permissão" })
-      }
-
-      if (!mensagem) {
-        return res
-          .status(400)
-          .json({ erro: "Mensagem obrigatória ao cancelar a reserva." })
-      }
-    }
-
-    await prisma.reserva.update({
-      where: { id },
-      data: { status: Status_reserva.CANCELADA },
-    })
-
-    // Notificar cliente quando o proprietário cancelar
-    if (req.user!.tipo === "PROPRIETARIO" && reserva.cliente?.usuario) {
-      await prisma.notificacao.create({
-        data: {
-          usuarioId: reserva.cliente.usuario.id,
-          titulo: "Sua reserva foi cancelada",
-          mensagem: mensagem,
-          tipo: TipoNotificacao.ALERTA,
-        },
-      })
-    }
-
-    res.json({ mensagem: "Reserva cancelada com sucesso" })
   })
 )
 
@@ -448,5 +332,123 @@ router.post(
     })
   })
 )
+
+
+router.get(
+  "/:id",
+  verificaToken,
+  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    const reserva = await prisma.reserva.findUnique({
+      where: { id },
+      include: {
+        maquina: {
+          include: {
+            lavanderia: true
+          }
+        },
+        pagamento: true
+      }
+    });
+
+    if (!reserva) {
+      return res.status(404).json({ erro: "Reserva não encontrada" });
+    }
+
+    if (req.user!.tipo === "CLIENTE") {
+      const cli = await prisma.cliente.findUnique({
+        where: { usuarioId: req.user!.id },
+      });
+
+      if (!cli || cli.id !== reserva.cliente_id) {
+        return res.status(403).json({ erro: "Sem permissão" });
+      }
+    }
+
+    res.json(reserva);
+  })
+);
+
+router.delete(
+  "/:id",
+  verificaToken,
+  requireRole("CLIENTE", "PROPRIETARIO", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params
+    const mensagem =
+      typeof req.body?.mensagem === "string" ? req.body.mensagem.trim() : ""
+
+    const reserva = await prisma.reserva.findUnique({
+      where: { id },
+      include: {
+        cliente: {
+          include: {
+            usuario: true,
+          },
+        },
+        maquina: {
+          include: {
+            lavanderia: true,
+          },
+        },
+      },
+    })
+
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" })
+
+  
+    if (req.user!.tipo === "CLIENTE") {
+      const cli = await prisma.cliente.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+
+      if (!cli || cli.id !== reserva.cliente_id) {
+        return res.status(403).json({ erro: "Sem permissão" })
+      }
+    }
+
+    
+    if (req.user!.tipo === "PROPRIETARIO") {
+      const prop = await prisma.proprietario.findUnique({
+        where: { usuarioId: req.user!.id },
+      })
+
+      if (
+        !prop ||
+        reserva.maquina.lavanderia.proprietario_id !== prop.id
+      ) {
+        return res.status(403).json({ erro: "Sem permissão" })
+      }
+
+      if (!mensagem) {
+        return res
+          .status(400)
+          .json({ erro: "Mensagem obrigatória ao cancelar a reserva." })
+      }
+    }
+
+    await prisma.reserva.update({
+      where: { id },
+      data: { status: Status_reserva.CANCELADA },
+    })
+
+    // Notificar cliente quando o proprietário cancelar
+    if (req.user!.tipo === "PROPRIETARIO" && reserva.cliente?.usuario) {
+      await prisma.notificacao.create({
+        data: {
+          usuarioId: reserva.cliente.usuario.id,
+          titulo: "Sua reserva foi cancelada",
+          mensagem: mensagem,
+          tipo: TipoNotificacao.ALERTA,
+        },
+      })
+    }
+
+    res.json({ mensagem: "Reserva cancelada com sucesso" })
+  })
+)
+
 
 export default router
