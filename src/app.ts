@@ -14,6 +14,8 @@ import pagamentos from "./routes/pagamentos.js"
 import avaliacoes from "./routes/avaliacoes.js"
 import relatorios from "./routes/relatorios.js"
 import notificacoes from "./routes/notificacoes.js" 
+import enderecos from "./routes/enderecos.js"
+import usuarios from "./routes/usuarios.js"
 
 export const app = express()
 
@@ -39,5 +41,7 @@ app.use("/pagamentos", pagamentos)
 app.use("/avaliacoes", avaliacoes)
 app.use("/relatorios", relatorios)
 app.use("/notificacoes", notificacoes)
+app.use("/endereco", enderecos)
+app.use("/usuarios", usuarios)
 
 app.use(errorHandler)
